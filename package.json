@@ -1,0 +1,18 @@
+{
+  "name": "megadeal",
+  "version": "1.0.0",
+  "description": "Finds the best megatrain deals",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^0.16.0",
+    "cheerio": "latest",
+    "express": "latest",
+    "moment": "^2.18.1",
+    "request": "latest"
+  }
+}
