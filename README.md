@@ -1,6 +1,6 @@
 ## TrainFinder Backend
 
-A super simple backend to the [TrainFinder Frontend API](https://github.com/stunningpixels/trainfinder-frontend).
+A super simple backend to the [TrainFinder Frontend](https://github.com/stunningpixels/trainfinder-frontend).
 
 Scrapes the booking site for train times and returns results in JSON format. Results are cached in memory for one day.
 
