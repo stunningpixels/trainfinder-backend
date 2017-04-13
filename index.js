@@ -70,7 +70,7 @@ function extractDetailsFromResult(extract) {
 
 
 function getDetails(originCode, destinationCode, date) {
-  return axios.get("https://uk.megabus.com/JourneyResults.aspx?originCode=" + originCode + "&destinationCode=" + destinationCode + "&outboundDepartureDate=" + encodeURI(date) + "&inboundDepartureDate=" + encodeURI(date) + "&passengerCount=1&transportType=-1&concessionCount=0&nusCount=0&outboundWheelchairSeated=0&outboundOtherDisabilityCount=0&inboundWheelchairSeated=0&inboundOtherDisabilityCount=0&outboundPcaCount=0&inboundPcaCount=0&promotionCode=&withReturn=1")
+  return axios.get("https://uk.megabus.com/JourneyResults.aspx?originCode=" + originCode + "&destinationCode=" + destinationCode + "&outboundDepartureDate=" + encodeURI(date) + "&inboundDepartureDate=" + encodeURI(date) + "&passengerCount=1&transportType=2&concessionCount=0&nusCount=0&outboundWheelchairSeated=0&outboundOtherDisabilityCount=0&inboundWheelchairSeated=0&inboundOtherDisabilityCount=0&outboundPcaCount=0&inboundPcaCount=0&promotionCode=&withReturn=1")
     .then(function(response) {
       var prices = [];
       const $ = cheerio.load(response.data);
