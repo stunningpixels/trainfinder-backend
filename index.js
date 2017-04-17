@@ -32,7 +32,10 @@ app.get('/scrape', function(req, res){
     .then(function(results) {
       let combinedResults = [];
       results.map(function(response, index) {
-        combinedResults.push(response);
+        if(response.outbound.cheapest === null && response.inbound.cheapest === null) {
+        }else {
+          combinedResults.push(response);
+        }
       });
       cache[originCode + '_' + destinationCode + '_' + lookAhead + '_' + moment().format("DD/MM/YYYY")] = combinedResults;
       res.send(combinedResults);
