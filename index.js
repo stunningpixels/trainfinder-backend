@@ -1,94 +1,153 @@
-var express = require('express');
-var fs = require('fs');
-var request = require('request');
-var cheerio = require('cheerio');
-var axios = require('axios');
-var app     = express();
-var moment = require("moment");
+const express = require('express');
+const axios = require('axios');
+const app = express();
+const moment = require("moment");
 
-var cache = {}
+let cache = {}
 
-app.get('/scrape', function(req, res){
+const queryMega = ({originCode, destinationCode, departureDate}) => axios.get(`https://uk.megabus.com/journey-planner/api/journeys?originId=${originCode}&destinationId=${destinationCode}&departureDate=${departureDate}&totalPassengers=1&concessionCount=0&nusCount=0&days=1`)
 
+const cacheRef = ({originCode, destinationCode}) => `${originCode}_${destinationCode}_${moment(new Date()).format('YYYY-MM-DD')}`
+
+app.get('/scrape', async (req, res) => {
+  // Set CORS headers
   res.header("Access-Control-Allow-Origin", "*");
   res.header("Access-Control-Allow-Headers", "X-Requested-With");
 
+  // Request defaults
   let lookAhead = req.query.lookAhead || 7;
   let originCode = req.query.originCode || null;
   let destinationCode = req.query.destinationCode || null;
 
-  if(cache[originCode + '_' + destinationCode + '_' + lookAhead + '_' + moment().format("DD/MM/YYYY")]) {
-    res.send(cache[originCode + '_' + destinationCode + '_' + lookAhead + '_' + moment().format("DD/MM/YYYY")]);
-    return;
+  // Generate the cache reference string
+  const cacheRefString = cacheRef({originCode, destinationCode})
+
+  // Check if a cache result exists for this request
+  if (cache[cacheRefString]) {
+    return res.send(cache[cacheRefString]);
   }
 
-  let requests = [];
+  // Array to store mutliple days of results for a given request
+  const results = []
+
   for (i = 0; i <= lookAhead; i++) {
-    let dateString = moment().add(i, 'days').format("DD/MM/YYYY");
-    requests.push(getDetails(originCode, destinationCode, dateString));
+
+    // Current date to check
+    const momentDate = moment().add(i, 'days')
+    const departureDate = momentDate.format("YYYY-MM-DD");
+
+    // Options to pass to Mega
+    const outboundOptions = {
+      originCode,
+      destinationCode,
+      departureDate
+    }
+
+    const inboundOptions = {
+      originCode: destinationCode,
+      destinationCode: originCode,
+      departureDate
+    }
+
+    // The API requests
+    const outboundResults = await queryMega(outboundOptions).then(({data}) => data.journeys)
+    const inboundResults = await queryMega(inboundOptions).then(({data}) => data.journeys)
+
+    // Store the cheapest fares of the day
+    let cheapestOutbound = null;
+    let cheapestInbound = null;
+
+    // Push this day's results to the multiple days array
+    const formattedOutboundResults =
+      outboundResults
+        .filter(({legs}) => legs.some(({transportTypeId}) => transportTypeId === 2))
+        .map(({departureDateTime, arrivalDateTime, price}) => {
+          if (!cheapestOutbound || cheapestOutbound > price) {
+            cheapestOutbound = price
+          }
+
+          return {
+            price,
+            departs: moment(departureDateTime).format('HH:mma'),
+            arrives: moment(arrivalDateTime).format('HH:mma')
+          }
+        })
+
+    const formattedInboundResults =
+      inboundResults
+        .filter(({legs}) => legs.some(({transportTypeId}) => transportTypeId === 2))
+        .map(({departureDateTime, arrivalDateTime, price}) => {
+          if (!cheapestInbound || cheapestInbound > price) {
+            cheapestInbound = price
+          }
+
+          return {
+            price,
+            departs: moment(departureDateTime).format('HH:mma'),
+            arrives: moment(arrivalDateTime).format('HH:mma')
+          }
+        })
+
+    results.push({
+      date: momentDate.format('DD/MM/YYYY'),
+      outbound: {
+        cheapest: cheapestOutbound,
+        journeys: formattedOutboundResults
+      },
+      inbound: {
+        cheapest: cheapestInbound,
+        journeys: formattedInboundResults
+      }
+    })
   }
 
-  axios.all(requests)
-    .then(function(results) {
-      let combinedResults = [];
-      results.map(function(response, index) {
-        if(response.outbound.cheapest === null && response.inbound.cheapest === null) {
-        }else {
-          combinedResults.push(response);
-        }
-      });
-      cache[originCode + '_' + destinationCode + '_' + lookAhead + '_' + moment().format("DD/MM/YYYY")] = combinedResults;
-      res.send(combinedResults);
-    });
+  // Store the result in cache for 1 day
+  cache[cacheRefString] = results
+
+  return res.send(results);
+  //
+  // axios.all(requests)
+  //   .then(function(results) {
+  //     let combinedResults = [];
+  //     results.map(function(response, index) {
+  //       if(response.outbound.cheapest === null && response.inbound.cheapest === null) {
+  //       }else {
+  //         combinedResults.push(response);
+  //       }
+  //     });
+  //     cache[originCode + '_' + destinationCode + '_' + lookAhead + '_' + moment().format("DD/MM/YYYY")] = combinedResults;
+  //     res.send(combinedResults);
+  //   });
 
 
 })
 
-function extractDetailsFromResult(extract) {
-  let journeys = [];
-  extract.children().each(function(index) {
-    if(cheerio(this).attr('scdata-price')) {
-      let journey = {};
-      journey.price = parseFloat(cheerio(this).attr('scdata-price'));
-      let journeyStringParts = cheerio(this).find(".two").first().children().html().split("\n");
-      journey.departs = journeyStringParts[2].replace(/\s/g,'');
-      journeyStringParts = cheerio(this).find(".two").first().children().next().html().split("\n");
-      journey.arrives = journeyStringParts[2].replace(/\s/g,'');
-      journeys.push(journey);
-    }
-  });
-
-  let cheapest = null
-  if(journeys.length >= 1) {
-    cheapest = journeys[0].price
-    journeys.map(function(item, index) {
-      if(cheapest > item.price) {
-        cheapest = item.price
-      }
-    })
-  }
-  return {cheapest, journeys};
-  //return cheapest;
-}
-
-
-function getDetails(originCode, destinationCode, date) {
-  return axios.get("https://uk.megabus.com/JourneyResults.aspx?originCode=" + originCode + "&destinationCode=" + destinationCode + "&outboundDepartureDate=" + encodeURI(date) + "&inboundDepartureDate=" + encodeURI(date) + "&passengerCount=1&transportType=2&concessionCount=0&nusCount=0&outboundWheelchairSeated=0&outboundOtherDisabilityCount=0&inboundWheelchairSeated=0&inboundOtherDisabilityCount=0&outboundPcaCount=0&inboundPcaCount=0&promotionCode=&withReturn=1")
-    .then(function(response) {
-      var prices = [];
-      const $ = cheerio.load(response.data);
-
-      return {
-        date,
-        outbound: extractDetailsFromResult($("#JourneyResylts_OutboundList_main_div")),
-        inbound: extractDetailsFromResult($("#JourneyResylts_InboundList_main_div"))
-      }
-    })
-    .catch(function(error) {
-      console.log(error);
-    });
-}
-
+// function extractDetailsFromResult(extract) {
+//   let journeys = [];
+//   extract.children().each(function(index) {
+//     if(cheerio(this).attr('scdata-price')) {
+//       let journey = {};
+//       journey.price = parseFloat(cheerio(this).attr('scdata-price'));
+//       let journeyStringParts = cheerio(this).find(".two").first().children().html().split("\n");
+//       journey.departs = journeyStringParts[2].replace(/\s/g,'');
+//       journeyStringParts = cheerio(this).find(".two").first().children().next().html().split("\n");
+//       journey.arrives = journeyStringParts[2].replace(/\s/g,'');
+//       journeys.push(journey);
+//     }
+//   });
+//
+//   let cheapest = null
+//   if(journeys.length >= 1) {
+//     cheapest = journeys[0].price
+//     journeys.map(function(item, index) {
+//       if(cheapest > item.price) {
+//         cheapest = item.price
+//       }
+//     })
+//   }
+//   return {cheapest, journeys};
+//   //return cheapest;
+// }
 
 app.set('port', (process.env.PORT || 5000));
 
@@ -96,4 +155,5 @@ app.set('port', (process.env.PORT || 5000));
 app.listen(app.get('port'), function() {
   console.log('Node app is running on port', app.get('port'));
 });
+
 exports = module.exports = app;
